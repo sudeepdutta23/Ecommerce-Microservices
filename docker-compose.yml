@@ -1,0 +1,23 @@
+# version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: harbormart-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: harbormart_user
+      POSTGRES_PASSWORD: harbormart_password
+      POSTGRES_DB: harbormart_auth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - harbormart-network
+
+networks:
+  harbormart-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
