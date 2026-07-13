@@ -1,23 +1,187 @@
-# version: '3.8'
+name: ecom-backend
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: harbormart-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
-    environment:
-      POSTGRES_USER: harbormart_user
-      POSTGRES_PASSWORD: harbormart_password
-      POSTGRES_DB: harbormart_auth
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - harbormart-network
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-networks:
-  harbormart-network:
-    driver: bridge
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672" # management UI (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4001
+      SERVICE_NAME: auth-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+      JWT_ACCESS_TTL: 15m
+      REFRESH_TOKEN_TTL_DAYS: 30
+    ports:
+      - "4001:4001"
+    healthcheck: &node-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${PORT}/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  user-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4002
+      SERVICE_NAME: user-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/user_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+    ports:
+      - "4002:4002"
+    healthcheck: *node-healthcheck
+
+  catalog-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/catalog-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4003
+      SERVICE_NAME: catalog-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/catalog_db?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+    ports:
+      - "4003:4003"
+    healthcheck: *node-healthcheck
+
+  order-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4004
+      SERVICE_NAME: order-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/order_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+      CATALOG_SERVICE_URL: http://catalog-service:4003
+      OUTBOX_POLL_INTERVAL_MS: 2000
+    ports:
+      - "4004:4004"
+    healthcheck: *node-healthcheck
+
+  notification-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4005
+      SERVICE_NAME: notification-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/notification_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+    ports:
+      - "4005:4005"
+    healthcheck: *node-healthcheck
+
+  analytics-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/analytics-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4006
+      SERVICE_NAME: analytics-service
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/analytics_db?schema=public
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+    ports:
+      - "4006:4006"
+    healthcheck: *node-healthcheck
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      SERVICE_NAME: gateway
+      LOG_LEVEL: info
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      USER_SERVICE_URL: http://user-service:4002
+      CATALOG_SERVICE_URL: http://catalog-service:4003
+      ORDER_SERVICE_URL: http://order-service:4004
+      NOTIFICATION_SERVICE_URL: http://notification-service:4005
+      ANALYTICS_SERVICE_URL: http://analytics-service:4006
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX: 300
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+    healthcheck: *node-healthcheck
 
 volumes:
-  postgres_data:
+  pgdata:

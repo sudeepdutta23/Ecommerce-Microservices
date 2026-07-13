@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+  // Service-local output; see auth-service schema for rationale.
+  output   = "../node_modules/@prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Append-only event store. `id` is the envelope id for domain events (natural
+// dedupe under at-least-once delivery) or generated for frontend events.
+model AnalyticsEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  type          String
+  // 'frontend' for ingested microfrontend events, else the emitting service.
+  source        String
+  userId        String?  @map("user_id")
+  payload       Json     @default("{}")
+  correlationId String?  @map("correlation_id")
+  occurredAt    DateTime @map("occurred_at") @db.Timestamptz(6)
+  receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([type])
+  @@index([occurredAt])
+  @@index([source])
+  @@map("events")
+}

@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+  // Service-local output; see auth-service schema for rationale.
+  output   = "../node_modules/@prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// The profile's userId references the identity owned by auth-service. It is
+// deliberately NOT a foreign key — the services do not share a database.
+// Consistency is maintained through the user.registered event.
+model Profile {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  email       String
+  displayName String   @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  bio         String?
+  preferences Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("profiles")
+}

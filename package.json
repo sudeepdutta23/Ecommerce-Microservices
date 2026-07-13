@@ -1,0 +1,23 @@
+{
+  "name": "ecom-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade Node.js + PostgreSQL microservices backend for a React microfrontend platform",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "gateway"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @ecom/config && npm run build -w @ecom/logger && npm run build -w @ecom/http && npm run build -w @ecom/events",
+    "build:services": "npm run build -w @ecom/auth-service -w @ecom/user-service -w @ecom/catalog-service -w @ecom/order-service -w @ecom/notification-service -w @ecom/analytics-service -w @ecom/gateway",
+    "build": "npm run build:packages && npm run build:services",
+    "generate": "npm run prisma:generate --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "npm run db:migrate --workspaces --if-present",
+    "db:seed": "npm run db:seed --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

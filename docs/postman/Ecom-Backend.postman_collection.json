@@ -1,0 +1,872 @@
+{
+  "info": {
+    "_postman_id": "9a1b2c3d-0000-4000-8000-ecombackend02",
+    "name": "Ecom Backend Microservices",
+    "description": "All APIs of the e-commerce microservices backend, routed through the API gateway (default http://localhost:8080).\n\n**Setup**: import `Ecom-Backend-Local.postman_environment.json` and select it.\n\n**Token mapping**: `Auth > Register` (or `Login`) stores `accessToken`/`refreshToken` in the environment; `Auth > Admin Login` stores `adminAccessToken`. All authenticated requests inherit `Bearer {{accessToken}}` from the collection; admin-only requests override with `{{adminAccessToken}}`. Order/notification/product ids are captured automatically by test scripts, so the folders can be run top-to-bottom (Collection Runner works too).\n\nSeed data required for catalog/order defaults: run the auth + catalog seeds (see README).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-wide: every response must use the standard envelope.",
+          "if (pm.response.headers.get('content-type')?.includes('application/json') && pm.response.code !== 204) {",
+          "    const body = pm.response.json();",
+          "    pm.test('response uses standard envelope', () => {",
+          "        pm.expect(body).to.have.property('success');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Gateway liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health/live", "host": ["{{baseUrl}}"], "path": ["health", "live"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('gateway is live', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aggregate service health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health/services", "host": ["{{baseUrl}}"], "path": ["health", "services"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('all services reachable', () => {",
+                  "    pm.expect(body.status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generate a unique email on first run so re-running never 409s.",
+                  "if (!pm.environment.get('userEmail')) {",
+                  "    pm.environment.set('userEmail', `user_${Date.now()}@example.com`);",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('registered (201)', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "if (body.success) {",
+                  "    pm.environment.set('accessToken', body.data.tokens.accessToken);",
+                  "    pm.environment.set('refreshToken', body.data.tokens.refreshToken);",
+                  "    pm.environment.set('userId', body.data.user.id);",
+                  "    pm.test('tokens captured to environment', () => {",
+                  "        pm.expect(body.data.tokens.accessToken).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.success) {",
+                  "    pm.environment.set('accessToken', body.data.tokens.accessToken);",
+                  "    pm.environment.set('refreshToken', body.data.tokens.refreshToken);",
+                  "    pm.environment.set('userId', body.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin logged in (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.success) {",
+                  "    pm.environment.set('adminAccessToken', body.data.tokens.accessToken);",
+                  "    pm.environment.set('adminRefreshToken', body.data.tokens.refreshToken);",
+                  "    pm.test('admin role confirmed', () => pm.expect(body.data.user.role).to.eql('ADMIN'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "me"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('authenticated (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('identity matches captured userId', () => {",
+                  "    pm.expect(pm.response.json().data.user.id).to.eql(pm.environment.get('userId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh (rotates tokens)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('refreshed (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.success) {",
+                  "    const old = pm.environment.get('refreshToken');",
+                  "    pm.environment.set('accessToken', body.data.tokens.accessToken);",
+                  "    pm.environment.set('refreshToken', body.data.tokens.refreshToken);",
+                  "    pm.test('refresh token was rotated', () => {",
+                  "        pm.expect(body.data.tokens.refreshToken).to.not.eql(old);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout (revokes refresh token)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "logout"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged out (204)', () => pm.response.to.have.status(204));",
+                  "pm.environment.set('refreshToken', '');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Profiles (user-service)",
+      "item": [
+        {
+          "name": "Get my profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/profiles/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "profiles", "me"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Profile is provisioned asynchronously from user.registered;",
+                  "// a 404 immediately after registration just means the event is in flight.",
+                  "pm.test('profile found (200) — retry once if 404 right after register', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update my profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"Jane Doe\",\n  \"bio\": \"Microfrontend enthusiast\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/profiles/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "profiles", "me"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('profile updated (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Merge my preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"theme\": \"dark\",\n  \"catalog.pageSize\": 24\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/profiles/me/preferences", "host": ["{{baseUrl}}"], "path": ["api", "v1", "profiles", "me", "preferences"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('preferences merged (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('merged keys present', () => {",
+                  "    pm.expect(pm.response.json().data.profile.preferences.theme).to.eql('dark');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: get profile by userId",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/profiles/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "profiles", "{{userId}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('admin lookup ok (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Catalog (catalog-service)",
+      "item": [
+        {
+          "name": "List products (search/filter/sort/paginate)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?page=1&limit=10&sort=priceCents&order=asc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "sort", "value": "priceCents", "description": "name | priceCents | createdAt" },
+                { "key": "order", "value": "asc" },
+                { "key": "search", "value": "keyboard", "disabled": true },
+                { "key": "categoryId", "value": "{{categoryId}}", "disabled": true },
+                { "key": "minPriceCents", "value": "1000", "disabled": true },
+                { "key": "maxPriceCents", "value": "20000", "disabled": true },
+                { "key": "ids", "value": "{{productId}},{{productId2}}", "disabled": true, "description": "batch lookup used by order-service" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('products listed (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('pagination meta present', () => {",
+                  "    pm.expect(body.meta).to.include.keys('page', 'limit', 'total', 'totalPages');",
+                  "});",
+                  "// Map first two products for the Orders folder.",
+                  "if (body.success && body.data.products.length > 1) {",
+                  "    pm.environment.set('productId', body.data.products[0].id);",
+                  "    pm.environment.set('productId2', body.data.products[1].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get product by id",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "products", "{{productId}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('product found (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List categories",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/categories", "host": ["{{baseUrl}}"], "path": ["api", "v1", "categories"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('categories listed (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.success && body.data.categories.length > 0) {",
+                  "    pm.environment.set('categoryId', body.data.categories[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create category",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Accessories {{$randomInt}}\",\n  \"slug\": \"accessories-{{$randomInt}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/categories", "host": ["{{baseUrl}}"], "path": ["api", "v1", "categories"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('category created (201)', () => pm.response.to.have.status(201));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create product",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ergonomic Mouse {{$randomInt}}\",\n  \"slug\": \"ergonomic-mouse-{{$randomInt}}\",\n  \"description\": \"Vertical wireless mouse\",\n  \"priceCents\": 6499,\n  \"stock\": 80,\n  \"categoryId\": \"{{categoryId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/products", "host": ["{{baseUrl}}"], "path": ["api", "v1", "products"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('product created (201)', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "if (body.success) pm.environment.set('createdProductId', body.data.product.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: update product",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priceCents\": 5999,\n  \"stock\": 120\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/products/{{createdProductId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "products", "{{createdProductId}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('product updated (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: deactivate product (soft delete)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/products/{{createdProductId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "products", "{{createdProductId}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('product deactivated (204)', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Orders (order-service)",
+      "item": [
+        {
+          "name": "Create order (idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}", "description": "Required; 8-128 chars. Generated by the pre-request script." }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"quantity\": 2 },\n    { \"productId\": \"{{productId2}}\", \"quantity\": 1 }\n  ],\n  \"shippingAddress\": {\n    \"line1\": \"42 Federation Way\",\n    \"city\": \"Kolkata\",\n    \"postalCode\": \"700001\",\n    \"country\": \"IN\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh key per create; the Replay request reuses this exact key.",
+                  "pm.environment.set('idempotencyKey', `pm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('order created (201)', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "if (body.success) {",
+                  "    pm.environment.set('orderId', body.data.order.id);",
+                  "    pm.test('order is PENDING with server-computed total', () => {",
+                  "        pm.expect(body.data.order.status).to.eql('PENDING');",
+                  "        pm.expect(body.data.order.totalCents).to.be.above(0);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order — replay same key",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}", "description": "Same key as the previous request — must replay, not duplicate." }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"quantity\": 2 },\n    { \"productId\": \"{{productId2}}\", \"quantity\": 1 }\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('replayed stored response (201)', () => pm.response.to.have.status(201));",
+                  "pm.test('marked as idempotent replay', () => {",
+                  "    pm.expect(pm.response.headers.get('x-idempotent-replay')).to.eql('true');",
+                  "});",
+                  "pm.test('same order id as original', () => {",
+                  "    pm.expect(pm.response.json().data.order.id).to.eql(pm.environment.get('orderId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List my orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "PENDING", "disabled": true, "description": "PENDING | PAID | SHIPPED | DELIVERED | CANCELLED" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('orders listed (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('order found (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: update status (PENDING → PAID)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PAID\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}", "status"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status changed (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('order is PAID', () => pm.expect(pm.response.json().data.order.status).to.eql('PAID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel my order (only while PENDING)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/cancel", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}", "cancel"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 200 if the order is still PENDING; 409 if it was already paid",
+                  "// (run before the admin PAID transition to see the success path).",
+                  "pm.test('cancelled (200) or state-machine rejection (409)', () => {",
+                  "    pm.expect([200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notifications (notification-service)",
+      "item": [
+        {
+          "name": "List my notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "unreadOnly", "value": "true", "disabled": true }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('notifications listed (200)', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "// Notifications are produced asynchronously by events (welcome,",
+                  "// order confirmed, status changed) — allow a moment after writes.",
+                  "if (body.success && body.data.notifications.length > 0) {",
+                  "    pm.environment.set('notificationId', body.data.notifications[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark one as read",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications", "{{notificationId}}", "read"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('marked read (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('readAt is set', () => pm.expect(pm.response.json().data.notification.readAt).to.not.be.null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark all as read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/read-all", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications", "read-all"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('all marked read (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analytics (analytics-service)",
+      "item": [
+        {
+          "name": "Ingest frontend events (batch, anonymous OK)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"events\": [\n    { \"type\": \"page.view\", \"payload\": { \"remote\": \"catalog\", \"path\": \"/products\" } },\n    { \"type\": \"product.click\", \"payload\": { \"productId\": \"{{productId}}\" } }\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/events", "host": ["{{baseUrl}}"], "path": ["api", "v1", "events"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted (202)', () => pm.response.to.have.status(202));",
+                  "pm.test('events counted', () => pm.expect(pm.response.json().data.ingested).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingest as authenticated user (userId attributed)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"events\": [\n    { \"type\": \"checkout.started\", \"payload\": { \"cartSize\": 3 } }\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/events", "host": ["{{baseUrl}}"], "path": ["api", "v1", "events"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('accepted (202)', () => pm.response.to.have.status(202));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: summary report",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminAccessToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "reports", "summary"],
+              "query": [
+                { "key": "from", "value": "2026-01-01T00:00:00.000Z", "disabled": true },
+                { "key": "to", "value": "2026-12-31T23:59:59.000Z", "disabled": true }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('report returned (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('report has totals, byType and byDay', () => {",
+                  "    const report = pm.response.json().data.report;",
+                  "    pm.expect(report).to.include.keys('totalEvents', 'byType', 'byDay');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

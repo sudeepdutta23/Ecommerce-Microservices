@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+  // Service-local output; see auth-service schema for rationale.
+  output   = "../node_modules/@prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Notification {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @map("user_id") @db.Uuid
+  type    String
+  title   String
+  body    String
+  metadata Json   @default("{}")
+  // Envelope id of the event that produced this notification; the unique
+  // constraint makes the consumer idempotent under at-least-once delivery.
+  sourceEventId String?  @unique @map("source_event_id") @db.Uuid
+  readAt        DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}

@@ -1,0 +1,177 @@
+### E2E walkthrough through the gateway (VS Code REST Client / IntelliJ HTTP client)
+### Prereqs: docker compose up -d, then seed auth + catalog (see README).
+
+@gateway = http://localhost:8080
+
+### 0. Aggregate health
+GET {{gateway}}/health/services
+
+### 1. Register a new user (also provisions a profile + welcome notification via events)
+# @name register
+POST {{gateway}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "Str0ngPass!"
+}
+
+### 2. Login
+# @name login
+POST {{gateway}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "Str0ngPass!"
+}
+
+@accessToken = {{login.response.body.data.tokens.accessToken}}
+@refreshToken = {{login.response.body.data.tokens.refreshToken}}
+
+### 3. Who am I
+GET {{gateway}}/api/v1/auth/me
+Authorization: Bearer {{accessToken}}
+
+### 4. Rotate the refresh token
+POST {{gateway}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+### 5. My profile (created asynchronously from user.registered)
+GET {{gateway}}/api/v1/profiles/me
+Authorization: Bearer {{accessToken}}
+
+### 6. Update profile + preferences
+PUT {{gateway}}/api/v1/profiles/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "displayName": "Jane Doe",
+  "bio": "Microfrontend enthusiast"
+}
+
+### 6b. Merge preferences (per-microfrontend UI settings)
+PATCH {{gateway}}/api/v1/profiles/me/preferences
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "theme": "dark",
+  "catalog.pageSize": 24
+}
+
+### 7. Browse the catalog: search + filter + sort + paginate
+GET {{gateway}}/api/v1/products?search=keyboard&minPriceCents=1000&sort=priceCents&order=asc&page=1&limit=10
+
+### 7b. Categories
+GET {{gateway}}/api/v1/categories
+
+### 8. Create an order (Idempotency-Key required; prices come from the catalog)
+# @name createOrder
+POST {{gateway}}/api/v1/orders
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Idempotency-Key: demo-order-0001
+
+{
+  "items": [
+    { "productId": "a1000000-0000-4000-8000-000000000001", "quantity": 2 },
+    { "productId": "a1000000-0000-4000-8000-000000000008", "quantity": 1 }
+  ],
+  "shippingAddress": {
+    "line1": "42 Federation Way",
+    "city": "Kolkata",
+    "postalCode": "700001",
+    "country": "IN"
+  }
+}
+
+@orderId = {{createOrder.response.body.data.order.id}}
+
+### 8b. Replay the same request — same order back, x-idempotent-replay: true
+POST {{gateway}}/api/v1/orders
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Idempotency-Key: demo-order-0001
+
+{
+  "items": [
+    { "productId": "a1000000-0000-4000-8000-000000000001", "quantity": 2 },
+    { "productId": "a1000000-0000-4000-8000-000000000008", "quantity": 1 }
+  ]
+}
+
+### 9. My orders
+GET {{gateway}}/api/v1/orders?page=1&limit=10
+Authorization: Bearer {{accessToken}}
+
+### 10. Admin: login and mark the order paid (drives order.status_changed event)
+# @name adminLogin
+POST {{gateway}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "Admin123!"
+}
+
+@adminToken = {{adminLogin.response.body.data.tokens.accessToken}}
+
+###
+PATCH {{gateway}}/api/v1/orders/{{orderId}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "PAID"
+}
+
+### 11. Notifications produced by the events (welcome, order confirmed, order paid)
+GET {{gateway}}/api/v1/notifications?page=1&limit=10
+Authorization: Bearer {{accessToken}}
+
+### 11b. Mark all read
+POST {{gateway}}/api/v1/notifications/read-all
+Authorization: Bearer {{accessToken}}
+
+### 12. Frontend analytics ingestion (batched, works anonymously too)
+POST {{gateway}}/api/v1/events
+Content-Type: application/json
+
+{
+  "events": [
+    { "type": "page.view", "payload": { "remote": "catalog", "path": "/products" } },
+    { "type": "product.click", "payload": { "productId": "a1000000-0000-4000-8000-000000000001" } }
+  ]
+}
+
+### 13. Admin: analytics summary (frontend events + all domain events)
+GET {{gateway}}/api/v1/reports/summary
+Authorization: Bearer {{adminToken}}
+
+### 14. Admin: create a product
+POST {{gateway}}/api/v1/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Ergonomic Mouse",
+  "slug": "ergonomic-mouse",
+  "description": "Vertical wireless mouse",
+  "priceCents": 6499,
+  "stock": 80,
+  "categoryId": "c1000000-0000-4000-8000-000000000001"
+}
+
+### 15. Logout (revokes the refresh token)
+POST {{gateway}}/api/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
