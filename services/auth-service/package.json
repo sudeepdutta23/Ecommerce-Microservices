@@ -16,12 +16,12 @@
     "@ecom/events": "*",
     "@ecom/http": "*",
     "@ecom/logger": "*",
-    "@prisma/client": "^5.19.0",
+    "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
-    "cors": "^2.8.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
